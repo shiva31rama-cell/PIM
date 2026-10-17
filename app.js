@@ -505,7 +505,7 @@ app.get("/api/reports", requireAuth, wrap(async (req, res) => {
 app.use("/api", (req, res) => sendError(res, 404, "API route not found."));
 app.use(express.static(path.join(__dirname, "public"), {
   etag: true,
-  maxAge: process.env.NODE_ENV === "production" ? "1h" : 0
+  maxAge: 0
 }));
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
