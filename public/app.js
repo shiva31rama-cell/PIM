@@ -484,6 +484,10 @@ $("#primaryAction").addEventListener("click", () => {
 });
 $$(".nav-item").forEach((item) => item.addEventListener("click", () => loadView(item.dataset.view).catch((error) => noticeToast(error.message, "error"))));
 modalBody.addEventListener("submit", submitModal);
+modalBody.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-action]");
+  if (button) handleAction(button).catch((error) => noticeToast(error.message, "error"));
+});
 modal.addEventListener("click", (event) => {
   if (event.target.id === "modalBackdrop" || event.target.id === "modalClose") closeModal();
 });
