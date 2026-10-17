@@ -87,12 +87,29 @@ function sendError(res, status, message) {
 }
 function expiryFromInput(value) {
   if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    date.setUTCHours(23, 59, 59, 999);
+    const date = new Date(value + "T00:00:00.000Z");
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) return null;
+    return date;
   }
-  return date;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+function indiaDateKey(value) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(value);
+  const item = {};
+  for (const part of parts) if (part.type !== "literal") item[part.type] = part.value;
+  return item.year + "-" + item.month + "-" + item.day;
+}
+function shiftDateKey(key, days) {
+  const date = new Date(key + "T00:00:00.000Z");
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+function expiryDateKey(value) {
+  return new Date(value).toISOString().slice(0, 10);
 }
 function money(value) {
   if (value === "" || value === undefined || value === null) return 0;
@@ -192,17 +209,18 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
 });
 
 app.get("/api/dashboard", requireAuth, wrap(async (req, res) => {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const soon = new Date(today);
-  soon.setDate(soon.getDate() + 30);
+  const todayKey = indiaDateKey(new Date());
+  const soonKey = shiftDateKey(todayKey, 30);
   const [medicines, recentMovements, supplierCount] = await Promise.all([
     Medicine.find().lean(),
     StockMovement.find().sort({ createdAt: -1 }).limit(8).lean(),
     Supplier.countDocuments()
   ]);
-  const expired = medicines.filter((item) => new Date(item.expiryDate) < today);
-  const expiring = medicines.filter((item) => new Date(item.expiryDate) >= today && new Date(item.expiryDate) <= soon);
+  const expired = medicines.filter((item) => expiryDateKey(item.expiryDate) < todayKey);
+  const expiring = medicines.filter((item) => {
+    const key = expiryDateKey(item.expiryDate);
+    return key >= todayKey && key <= soonKey;
+  });
   const lowStock = medicines.filter((item) => item.quantity <= item.reorderLevel);
   const totalUnits = medicines.reduce((sum, item) => sum + item.quantity, 0);
   const inventoryValue = medicines.reduce((sum, item) => sum + item.purchasePrice * item.quantity, 0);
@@ -232,13 +250,14 @@ app.get("/api/medicines", requireAuth, wrap(async (req, res) => {
     filter.$or = [{ name: regex }, { brand: regex }, { batchNumber: regex }, { barcode: regex }, { category: regex }];
   }
   let medicines = await Medicine.find(filter).sort({ updatedAt: -1 }).lean();
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const soon = new Date(today);
-  soon.setDate(soon.getDate() + 30);
+  const todayKey = indiaDateKey(new Date());
+  const soonKey = shiftDateKey(todayKey, 30);
   if (status === "low") medicines = medicines.filter((item) => item.quantity <= item.reorderLevel);
-  if (status === "expired") medicines = medicines.filter((item) => new Date(item.expiryDate) < today);
-  if (status === "expiring") medicines = medicines.filter((item) => new Date(item.expiryDate) >= today && new Date(item.expiryDate) <= soon);
+  if (status === "expired") medicines = medicines.filter((item) => expiryDateKey(item.expiryDate) < todayKey);
+  if (status === "expiring") medicines = medicines.filter((item) => {
+    const key = expiryDateKey(item.expiryDate);
+    return key >= todayKey && key <= soonKey;
+  });
   res.json({ medicines });
 }));
 
@@ -415,7 +434,7 @@ app.post("/api/stock/movements", requireAuth, wrap(async (req, res) => {
   if (reference.length > 100) return sendError(res, 400, "Reference must be 100 characters or less.");
   const current = await Medicine.findById(body.medicineId);
   if (!current) return sendError(res, 404, "Medicine batch not found.");
-  if (type === "OUT" && new Date(current.expiryDate) < new Date()) {
+  if (type === "OUT" && expiryDateKey(current.expiryDate) < indiaDateKey(new Date())) {
     return sendError(res, 409, "Stock-out is blocked for an expired batch. Verify and quarantine expired stock.");
   }
   const change = type === "IN" ? quantity : -quantity;
@@ -452,13 +471,14 @@ app.get("/api/stock/movements", requireAuth, wrap(async (req, res) => {
 
 app.get("/api/reports", requireAuth, wrap(async (req, res) => {
   const days = Math.min(365, Math.max(1, Number.parseInt(req.query.days, 10) || 90));
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const cutoff = new Date(today);
-  cutoff.setDate(cutoff.getDate() + days);
+  const todayKey = indiaDateKey(new Date());
+  const cutoffKey = shiftDateKey(todayKey, days);
   const medicines = await Medicine.find().populate("supplierId", "name").sort({ expiryDate: 1 }).lean();
-  const expired = medicines.filter((item) => new Date(item.expiryDate) < today);
-  const expiring = medicines.filter((item) => new Date(item.expiryDate) >= today && new Date(item.expiryDate) <= cutoff);
+  const expired = medicines.filter((item) => expiryDateKey(item.expiryDate) < todayKey);
+  const expiring = medicines.filter((item) => {
+    const key = expiryDateKey(item.expiryDate);
+    return key >= todayKey && key <= cutoffKey;
+  });
   const lowStock = medicines.filter((item) => item.quantity <= item.reorderLevel);
   const movements = await StockMovement.find({ createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }).lean();
   const monthIn = movements.filter((item) => item.type === "IN").reduce((sum, item) => sum + item.quantity, 0);
