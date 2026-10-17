@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#126b55">
+  <meta name="description" content="PIM Pharmacy Inventory Management — medicine batches, stock movement and expiry alerts.">
+  <title>PIM — Pharmacy Inventory</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div id="authScreen" class="auth-screen hidden">
+    <section class="auth-card">
+      <div class="brand-lockup">
+        <div class="brand-mark">P</div>
+        <div><div class="brand-name">PIM</div><div class="brand-subtitle">Pharmacy inventory management</div></div>
+      </div>
+      <div class="auth-intro">
+        <span class="eyebrow">YOUR INVENTORY, IN CONTROL</span>
+        <h1 id="authTitle">Welcome back</h1>
+        <p id="authDescription">Sign in to manage medicine stock, batches and expiry alerts.</p>
+      </div>
+      <form id="authForm" class="form-stack">
+        <label id="authNameWrap" class="field hidden">Full name<input name="name" autocomplete="name" minlength="2" placeholder="Your name"></label>
+        <label class="field">Email address<input name="email" type="email" required autocomplete="username" placeholder="name@pharmacy.com"></label>
+        <label class="field">Password<input name="password" type="password" required minlength="10" autocomplete="current-password" placeholder="At least 10 characters"></label>
+        <p id="authHint" class="help-text">Your account is protected by password hashing.</p>
+        <button id="authSubmit" class="button button-primary button-wide" type="submit">Sign in</button>
+        <p id="authError" class="form-error" role="alert"></p>
+      </form>
+      <div class="auth-footnote"><span class="tiny-dot"></span> Inventory records are saved to the connected database.</div>
+    </section>
+    <div class="auth-side">
+      <div class="auth-side-content">
+        <div class="side-kicker">MADE FOR CLEARER STOCK CONTROL</div>
+        <h2>Know what you have.<br>Know what needs attention.</h2>
+        <p>Track batch quantities, supplier details and expiry dates in one practical workspace.</p>
+        <div class="feature-line"><span>✓</span> Batch-level inventory</div>
+        <div class="feature-line"><span>✓</span> Stock movement history</div>
+        <div class="feature-line"><span>✓</span> Low-stock and expiry reports</div>
+      </div>
+      <div class="side-disclaimer">Student prototype · Verify all medicine records before acting on an alert.</div>
+    </div>
+  </div>
+
+  <div id="appShell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark">P</div>
+        <div><div class="brand-name">PIM</div><div class="brand-subtitle">Inventory workspace</div></div>
+      </div>
+      <div class="nav-label">WORKSPACE</div>
+      <nav class="main-nav" aria-label="Main navigation">
+        <button class="nav-item active" data-view="dashboard"><span class="nav-icon">▦</span> Overview</button>
+        <button class="nav-item" data-view="medicines"><span class="nav-icon">▤</span> Medicines <span id="medicineNavCount" class="nav-count"></span></button>
+        <button class="nav-item" data-view="suppliers"><span class="nav-icon">♧</span> Suppliers</button>
+        <button class="nav-item" data-view="stock"><span class="nav-icon">⇄</span> Stock movements</button>
+        <button class="nav-item" data-view="reports"><span class="nav-icon">▥</span> Reports</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="sidebar-note"><span class="status-pulse"></span><div><strong>Database-backed</strong><small>Changes are saved online</small></div></div>
+        <div class="user-card">
+          <div id="userAvatar" class="avatar">A</div>
+          <div class="user-info"><strong id="userName">Administrator</strong><small id="userEmail">admin@example.com</small></div>
+          <button id="logoutButton" class="icon-button" aria-label="Sign out" title="Sign out">↗</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-panel">
+      <header class="topbar">
+        <div class="topbar-text"><div class="breadcrumbs">PIM <span>/</span> <span id="breadcrumbCurrent">Overview</span></div><h1 id="pageTitle">Inventory overview</h1><p id="pageSubtitle">A clear picture of stock, expiry and activity.</p></div>
+        <div class="topbar-actions"><div class="date-chip"><span class="calendar-icon">◷</span><span id="todayDate"></span></div><button id="primaryAction" class="button button-primary"><span class="plus-icon">＋</span><span id="primaryActionText">Add medicine</span></button></div>
+      </header>
+      <div id="toast" class="toast hidden" role="status"></div>
+      <section id="content" class="content-area" aria-live="polite"><div class="loading-state">Loading your inventory…</div></section>
+      <footer class="app-footer"><span>PIM · Pharmacy Inventory Management</span><span>Educational prototype · Confirm data before use</span></footer>
+    </main>
+  </div>
+
+  <div id="modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <header class="modal-header"><div><div class="eyebrow">INVENTORY WORKSPACE</div><h2 id="modalTitle">New record</h2></div><button id="modalClose" class="icon-button close-button" aria-label="Close dialog">×</button></header>
+      <div id="modalBody" class="modal-body"></div>
+    </section>
+  </div>
+</body>
+</html>
