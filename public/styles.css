@@ -232,3 +232,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .modal-header { padding: 17px 16px 13px; }
   .modal-body { padding: 15px 16px 18px; }
 }
+
+/* Team user management */
+.user-role-help { margin-top: 8px; color: var(--muted); font-size: 12px; }

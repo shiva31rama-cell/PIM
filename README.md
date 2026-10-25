@@ -5,6 +5,7 @@ A full-stack pharmacy inventory prototype for tracking medicine batches, expiry 
 ## Features
 
 - First-run administrator setup and password-based sign-in.
+- Administrator-controlled staff accounts with admin/staff roles, activation/deactivation, and password reset by an administrator.
 - Medicine records by batch, including batch number, expiry date, purchase/selling price, reorder level, and storage location.
 - Supplier management.
 - Stock-in and stock-out movements with user, time, quantity, and resulting balance recorded in an audit history.
@@ -94,5 +95,6 @@ PIM/
 3. Add one medicine record per batch, including its expiry date and opening quantity.
 4. Use Stock movements for every receipt/dispensing/stock-out event. Avoid editing the database directly.
 5. Check Dashboard and Reports for low stock and expiry warnings.
+6. Use Team users (administrator only) to create staff accounts. Public self-registration is intentionally disabled.
 
 Expiry alerts and inventory value are derived from the batch data entered by the user. Verify all quantities, prices, and expiry dates against the actual packaging and records.
