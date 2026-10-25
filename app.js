@@ -20,7 +20,8 @@ const UserSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true, maxlength: 100 },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   passwordHash: { type: String, required: true },
-  role: { type: String, enum: ["admin"], default: "admin" }
+  role: { type: String, enum: ["admin", "staff"], default: "admin" },
+  active: { type: Boolean, default: true }
 }, { timestamps: true });
 
 const SupplierSchema = new mongoose.Schema({
@@ -82,6 +83,10 @@ const authLimiter = rateLimit({
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/setup", authLimiter);
 
+function requireAdmin(req, res, next) {
+  if (!req.user || req.user.role !== "admin") return sendError(res, 403, "Administrator permission is required.");
+  next();
+}
 function sendError(res, status, message) {
   return res.status(status).json({ message });
 }
@@ -146,8 +151,8 @@ const requireAuth = wrap(async (req, res, next) => {
   } catch (error) {
     return sendError(res, 401, "Your session has expired. Please sign in again.");
   }
-  const user = await User.findById(payload.sub).select("_id name email role");
-  if (!user) return sendError(res, 401, "Account not found. Please sign in again.");
+  const user = await User.findById(payload.sub).select("_id name email role active");
+  if (!user || user.active === false) return sendError(res, 401, "Account not found or deactivated. Please contact your administrator.");
   req.user = user;
   next();
 });
@@ -195,7 +200,7 @@ app.post("/api/auth/login", wrap(async (req, res) => {
   const password = String(req.body.password || "");
   if (!email || !password) return sendError(res, 400, "Enter your email and password.");
   const user = await User.findOne({ email });
-  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+  if (!user || user.active === false || !(await bcrypt.compare(password, user.passwordHash))) {
     return sendError(res, 401, "Email or password is incorrect.");
   }
   return res.json({
@@ -205,8 +210,68 @@ app.post("/api/auth/login", wrap(async (req, res) => {
 }));
 
 app.get("/api/auth/me", requireAuth, (req, res) => {
-  res.json({ user: { id: String(req.user._id), name: req.user.name, email: req.user.email, role: req.user.role } });
+  res.json({ user: { id: String(req.user._id), name: req.user.name, email: req.user.email, role: req.user.role, active: req.user.active !== false } });
 });
+
+app.get("/api/users", requireAuth, requireAdmin, wrap(async (req, res) => {
+  const users = await User.find().select("_id name email role active createdAt updatedAt").sort({ createdAt: 1 }).lean();
+  res.json({ users: users.map((user) => Object.assign({}, user, { active: user.active !== false })) });
+}));
+
+app.post("/api/users", requireAuth, requireAdmin, wrap(async (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const email = String(req.body.email || "").trim().toLowerCase();
+  const password = String(req.body.password || "");
+  const role = String(req.body.role || "staff");
+  if (name.length < 2) return sendError(res, 400, "Enter a name with at least 2 characters.");
+  if (!validEmail(email)) return sendError(res, 400, "Enter a valid email address.");
+  if (password.length < 10 || password.length > 200) return sendError(res, 400, "Use a password between 10 and 200 characters.");
+  if (!["admin", "staff"].includes(role)) return sendError(res, 400, "Choose a valid role.");
+  try {
+    const user = await User.create({ name, email, passwordHash: await bcrypt.hash(password, 12), role, active: true });
+    return res.status(201).json({ user: { id: String(user._id), name: user.name, email: user.email, role: user.role, active: true, createdAt: user.createdAt } });
+  } catch (error) {
+    if (error.code === 11000) return sendError(res, 409, "An account with that email already exists.");
+    throw error;
+  }
+}));
+
+app.patch("/api/users/:id", requireAuth, requireAdmin, wrap(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return sendError(res, 400, "Invalid user ID.");
+  const target = await User.findById(req.params.id);
+  if (!target) return sendError(res, 404, "User not found.");
+  const body = req.body || {};
+  const update = {};
+  if (Object.prototype.hasOwnProperty.call(body, "name")) {
+    const name = String(body.name || "").trim();
+    if (name.length < 2) return sendError(res, 400, "Name must have at least 2 characters.");
+    update.name = name;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "role")) {
+    if (!["admin", "staff"].includes(body.role)) return sendError(res, 400, "Choose a valid role.");
+    if (String(target._id) === String(req.user._id) && body.role !== "admin") return sendError(res, 400, "You cannot remove your own administrator role.");
+    if (target.role === "admin" && body.role !== "admin" && await User.countDocuments({ role: "admin", active: { $ne: false } }) <= 1) {
+      return sendError(res, 409, "At least one active administrator must remain.");
+    }
+    update.role = body.role;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "active")) {
+    const active = body.active === true;
+    if (String(target._id) === String(req.user._id) && !active) return sendError(res, 400, "You cannot deactivate your own account.");
+    if (target.role === "admin" && !active && await User.countDocuments({ role: "admin", active: { $ne: false } }) <= 1) {
+      return sendError(res, 409, "At least one active administrator must remain.");
+    }
+    update.active = active;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "password") && body.password !== "") {
+    const password = String(body.password);
+    if (password.length < 10 || password.length > 200) return sendError(res, 400, "Use a password between 10 and 200 characters.");
+    update.passwordHash = await bcrypt.hash(password, 12);
+  }
+  const user = await User.findByIdAndUpdate(target._id, { $set: update }, { new: true, runValidators: true })
+    .select("_id name email role active createdAt updatedAt").lean();
+  res.json({ user: Object.assign({}, user, { active: user.active !== false }) });
+}));
 
 app.get("/api/dashboard", requireAuth, wrap(async (req, res) => {
   const todayKey = indiaDateKey(new Date());

@@ -7,6 +7,7 @@ const state = {
   movements: [],
   report: null,
   medicineQuery: "",
+  users: [],
   medicineStatus: "all",
   movementType: "all",
   reportDays: 90,
@@ -88,6 +89,8 @@ function showShell() {
   $("#userName").textContent = state.user.name;
   $("#userEmail").textContent = state.user.email;
   $("#userAvatar").textContent = initials(state.user.name);
+  const usersNav = $("#usersNavItem");
+  if (usersNav) usersNav.classList.toggle("hidden", state.user.role !== "admin");
   $("#todayDate").textContent = new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
 }
 async function start() {
@@ -146,7 +149,8 @@ const viewMeta = {
   medicines: ["Medicine inventory", "Manage every medicine batch and its stock level."],
   suppliers: ["Suppliers", "Keep supplier contacts and linked medicine batches organised."],
   stock: ["Stock movements", "Record stock in or stock out with a traceable audit entry."],
-  reports: ["Inventory reports", "Review expiry exposure, low stock, and stock movement totals."]
+  reports: ["Inventory reports", "Review expiry exposure, low stock, and stock movement totals."],
+  users: ["User management", "Create staff accounts and manage access to this workspace."]
 };
 async function loadView(view) {
   state.view = view;
@@ -154,8 +158,8 @@ async function loadView(view) {
   $("#breadcrumbCurrent").textContent = viewMeta[view][0];
   $("#pageTitle").textContent = viewMeta[view][0];
   $("#pageSubtitle").textContent = viewMeta[view][1];
-  $("#primaryActionText").textContent = ({ dashboard: "Add medicine", medicines: "Add medicine", suppliers: "Add supplier", stock: "Record movement", reports: "Add medicine" })[view];
-  $("#primaryAction").classList.toggle("hidden", view === "reports");
+  $("#primaryActionText").textContent = ({ dashboard: "Add medicine", medicines: "Add medicine", suppliers: "Add supplier", stock: "Record movement", reports: "Add medicine", users: "Add user" })[view];
+  $("#primaryAction").classList.toggle("hidden", view === "reports" || (view === "users" && state.user?.role !== "admin"));
   content.innerHTML = '<div class="loading-state">Loading your inventory…</div>';
   try {
     if (view === "dashboard") await renderDashboard();
@@ -163,6 +167,7 @@ async function loadView(view) {
     if (view === "suppliers") await renderSuppliers();
     if (view === "stock") await renderStock();
     if (view === "reports") await renderReports();
+    if (view === "users") await renderUsers();
   } catch (error) {
     content.innerHTML = '<div class="panel empty-state"><strong>Unable to load this section</strong>' + esc(error.message) + '<div style="margin-top:14px"><button class="button button-secondary" data-action="reload">Try again</button></div></div>';
   }
@@ -270,6 +275,30 @@ async function renderStock() {
   content.innerHTML = sectionHeading("Stock movement history", "Each receipt and stock-out is recorded with its resulting balance.", '<button class="button button-secondary" id="exportMovements">Export CSV</button>') +
     '<section class="panel"><div class="filter-bar"><label for="movementFilter" class="help-text">Show</label><select id="movementFilter"><option value="all"' + selected(state.movementType, "all") + '>All movement types</option><option value="IN"' + selected(state.movementType, "IN") + '>Stock in</option><option value="OUT"' + selected(state.movementType, "OUT") + '>Stock out</option></select><span class="help-text">Showing the latest ' + number(state.movements.length) + ' records (maximum 200).</span></div>' +
     movementsTable(state.movements) + '</section>';
+}
+async function renderUsers() {
+  if (state.user?.role !== "admin") {
+    content.innerHTML = '<div class="panel empty-state"><strong>Administrator access required</strong>Only an administrator can manage user accounts.</div>';
+    return;
+  }
+  const response = await api("/api/users");
+  state.users = response.users;
+  const rows = state.users.map((user) => '<tr><td><span class="medicine-main">' + esc(user.name) + '</span><span class="cell-sub">' + esc(user.email) + '</span></td><td><span class="badge ' + (user.role === "admin" ? "green" : "amber") + '">' + esc(user.role) + '</span></td><td><span class="badge ' + (user.active ? "green" : "red") + '">' + (user.active ? "Active" : "Inactive") + '</span></td><td>' + date(user.createdAt) + '</td><td><div class="row-actions"><button class="row-action" data-action="edit-user" data-id="' + esc(user._id) + '">Edit</button>' + (user._id === state.user.id ? '' : '<button class="row-action ' + (user.active ? "danger" : "") + '" data-action="toggle-user" data-id="' + esc(user._id) + '">' + (user.active ? "Deactivate" : "Activate") + '</button>') + '</div></td></tr>').join("");
+  content.innerHTML = sectionHeading("Team accounts", "Only administrators can create accounts, change roles, reset passwords, or deactivate users.") +
+    '<section class="panel"><div class="panel-header"><div><h2>Users</h2><p>' + number(state.users.length) + ' account(s)</p></div></div>' +
+    (state.users.length ? '<div class="table-wrap"><table class="data-table"><thead><tr><th>USER</th><th>ROLE</th><th>STATUS</th><th>CREATED</th><th>ACTIONS</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : emptyState("No users found", "Create the first staff account.")) + '</section>';
+}
+function openUserModal(id) {
+  const user = id ? state.users.find((item) => item._id === id) : null;
+  const form = '<form data-kind="user" data-id="' + esc(user ? user._id : "") + '">' +
+    '<div class="form-grid">' +
+    makeField("Full name", "name", user ? user.name : "", "text", true, "", "Staff member name") +
+    (user ? '<label class="field">Email address<input type="email" value="' + esc(user.email) + '" disabled></label>' : makeField("Email address", "email", "", "email", true, "", "name@pharmacy.com")) +
+    (!user ? makeField("Temporary password", "password", "", "password", true, "", "At least 10 characters") : '<label class="field"><span>Reset password (optional)</span><input name="password" type="password" minlength="10" placeholder="Leave blank to keep current password"></label>') +
+    makeSelect("Role", "role", [{value:"staff",label:"Staff"},{value:"admin",label:"Administrator"}], user ? user.role : "staff", true) +
+    '</div><p class="help-text">Accounts are created by an administrator; public self-registration is disabled. Share temporary passwords securely.</p>' +
+    formFooter() + '</form>';
+  openModal(user ? "Edit user account" : "Create staff account", form);
 }
 async function renderReports() {
   const report = await api("/api/reports?days=" + state.reportDays);
@@ -432,12 +461,17 @@ async function submitModal(event) {
     } else if (kind === "movement") {
       endpoint = "/api/stock/movements";
       values.quantity = Number(values.quantity);
+    } else if (kind === "user") {
+      if (!id && !values.password) throw new Error("Enter a temporary password.");
+      if (id && !values.password) delete values.password;
+      endpoint = id ? "/api/users/" + encodeURIComponent(id) : "/api/users";
+      method = id ? "PATCH" : "POST";
     } else {
       throw new Error("Unsupported form.");
     }
     await api(endpoint, { method, body: JSON.stringify(values) });
     closeModal();
-    noticeToast(kind === "movement" ? "Stock movement saved." : kind === "supplier" ? "Supplier saved." : "Medicine batch saved.", "success");
+    noticeToast(kind === "movement" ? "Stock movement saved." : kind === "supplier" ? "Supplier saved." : kind === "user" ? "User account saved." : "Medicine batch saved.", "success");
     await loadView(state.view);
   } catch (error) {
     if (errorBox) errorBox.textContent = error.message;
@@ -454,6 +488,18 @@ async function handleAction(button) {
   if (action === "edit-medicine") return openMedicineModal(id);
   if (action === "stock-medicine") return openMovementModal(id);
   if (action === "edit-supplier") return openSupplierModal(id);
+  if (action === "edit-user") return openUserModal(id);
+  if (action === "toggle-user") {
+    const user = state.users.find((item) => item._id === id);
+    if (!user) return;
+    const nextActive = !user.active;
+    if (!window.confirm("Are you sure you want to " + (nextActive ? "activate " : "deactivate ") + user.name + "?")) return;
+    try {
+      await api("/api/users/" + encodeURIComponent(id), { method: "PATCH", body: JSON.stringify({ active: nextActive }) });
+      noticeToast("User account updated.", "success");
+      await loadView("users");
+    } catch (error) { noticeToast(error.message, "error"); }
+  }
   if (action === "delete-medicine") {
     const item = state.medicines.find((medicine) => medicine._id === id);
     if (!window.confirm("Delete medicine batch " + (item ? item.name + " / " + item.batchNumber : "") + "? This is allowed only if its quantity is zero and no movement history exists.")) return;
@@ -479,7 +525,7 @@ function safeClickActions(event) {
 $("#authForm").addEventListener("submit", signIn);
 $("#logoutButton").addEventListener("click", signOut);
 $("#primaryAction").addEventListener("click", () => {
-  const action = state.view === "suppliers" ? openSupplierModal() : state.view === "stock" ? openMovementModal() : openMedicineModal();
+  const action = state.view === "users" ? openUserModal() : state.view === "suppliers" ? openSupplierModal() : state.view === "stock" ? openMovementModal() : openMedicineModal();
   Promise.resolve(action).catch((error) => noticeToast(error.message, "error"));
 });
 $$(".nav-item").forEach((item) => item.addEventListener("click", () => loadView(item.dataset.view).catch((error) => noticeToast(error.message, "error"))));
