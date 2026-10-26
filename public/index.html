@@ -7,6 +7,7 @@
   <meta name="description" content="PIM Pharmacy Inventory Management — medicine batches, stock movement and expiry alerts.">
   <title>PIM — Pharmacy Inventory</title>
   <link rel="stylesheet" href="/styles.css">
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -72,7 +73,7 @@
     <main class="main-panel">
       <header class="topbar">
         <div class="topbar-text"><div class="breadcrumbs">PIM <span>/</span> <span id="breadcrumbCurrent">Overview</span></div><h1 id="pageTitle">Inventory overview</h1><p id="pageSubtitle">A clear picture of stock, expiry and activity.</p></div>
-        <div class="topbar-actions"><div class="date-chip"><span class="calendar-icon">◷</span><span id="todayDate"></span></div><button id="primaryAction" class="button button-primary"><span class="plus-icon">＋</span><span id="primaryActionText">Add medicine</span></button></div>
+        <div class="topbar-actions"><div class="date-chip"><span class="calendar-icon">◷</span><span id="todayDate"></span></div><button id="scannerButton" class="button button-secondary" type="button" title="Scan a medicine barcode">▦ Scan barcode</button><button id="primaryAction" class="button button-primary"><span class="plus-icon">＋</span><span id="primaryActionText">Add medicine</span></button></div>
       </header>
       <div id="toast" class="toast hidden" role="status"></div>
       <section id="content" class="content-area" aria-live="polite"><div class="loading-state">Loading your inventory…</div></section>
