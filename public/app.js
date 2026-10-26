@@ -447,8 +447,7 @@ async function searchScannedBarcode(rawCode) {
     const response = await api("/api/medicines?q=" + encodeURIComponent(code));
     const medicines = Array.isArray(response.medicines) ? response.medicines : [];
     state.medicines = medicines;
-    const exact = medicines.filter((item) => String(item.barcode || "").trim().toLowerCase() === code.toLowerCase());
-    const matches = exact.length ? exact : medicines;
+    const matches = medicines.filter((item) => String(item.barcode || "").trim().toLowerCase() === code.toLowerCase());
     if (status) status.textContent = matches.length
       ? "Found " + matches.length + " matching batch(es) for barcode " + code + "."
       : "No matching batch was found for barcode " + code + ".";
