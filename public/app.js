@@ -11,7 +11,8 @@ const state = {
   medicineStatus: "all",
   movementType: "all",
   reportDays: 90,
-  authMode: "login"
+  authMode: "login",
+  authIntent: "user"
 };
 
 const $ = (selector, root) => (root || document).querySelector(selector);
@@ -71,10 +72,16 @@ function showAuth(setupRequired) {
   $("#authError").textContent = "";
   $("#authForm").reset();
   state.authMode = setupRequired ? "setup" : "login";
+  state.authIntent = "user";
   $("#authTitle").textContent = setupRequired ? "Set up your workspace" : "Welcome back";
   $("#authDescription").textContent = setupRequired
     ? "Create the first administrator account to secure this inventory."
     : "Sign in to manage medicine stock, batches and expiry alerts.";
+  const adminLoginButton = $("#adminLoginButton");
+  if (adminLoginButton) {
+    adminLoginButton.classList.toggle("hidden", Boolean(setupRequired));
+    adminLoginButton.textContent = "⚙ Sign in as Administrator";
+  }
   $("#authNameWrap").classList.toggle("hidden", !setupRequired);
   $("#authForm [name=name]").required = Boolean(setupRequired);
   $("#authForm [name=password]").autocomplete = setupRequired ? "new-password" : "current-password";
@@ -128,6 +135,9 @@ async function signIn(event) {
   try {
     const path = state.authMode === "setup" ? "/api/auth/setup" : "/api/auth/login";
     const response = await api(path, { method: "POST", body: JSON.stringify(values) });
+    if (state.authMode !== "setup" && state.authIntent === "admin" && response.user.role !== "admin") {
+      throw new Error("This account does not have administrator access. Please use the regular sign-in option.");
+    }
     state.token = response.token;
     state.user = response.user;
     sessionStorage.setItem("pimToken", state.token);
@@ -648,6 +658,17 @@ function safeClickActions(event) {
   if (nav && !nav.classList.contains("nav-item")) loadView(nav.dataset.view).catch((error) => noticeToast(error.message, "error"));
 }
 $("#authForm").addEventListener("submit", signIn);
+$("#adminLoginButton").addEventListener("click", () => {
+  if (state.authMode === "setup") return;
+  state.authIntent = state.authIntent === "admin" ? "user" : "admin";
+  $("#authTitle").textContent = state.authIntent === "admin" ? "Administrator sign in" : "Welcome back";
+  $("#authDescription").textContent = state.authIntent === "admin"
+    ? "Sign in with an administrator account to manage the pharmacy workspace."
+    : "Sign in to manage medicine stock, batches and expiry alerts.";
+  $("#authSubmit").textContent = state.authIntent === "admin" ? "Admin sign in" : "Sign in";
+  $("#adminLoginButton").textContent = state.authIntent === "admin" ? "← Back to regular sign in" : "⚙ Sign in as Administrator";
+  $("#authError").textContent = "";
+});
 $("#adminButton").addEventListener("click", () => {
   if (state.user?.role !== "admin") return;
   loadView("users").catch((error) => noticeToast(error.message, "error"));
