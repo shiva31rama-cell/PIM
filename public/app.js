@@ -342,16 +342,135 @@ function openModal(title, body) {
   if (first) window.setTimeout(() => first.focus(), 50);
 }
 function closeModal() {
+  stopBarcodeCamera();
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
   document.body.style.overflow = "";
 }
-async function openMedicineModal(id) {
+
+let barcodeScanner = null;
+let scannerStarting = false;
+let lastScannedBarcode = "";
+
+async function stopBarcodeCamera() {
+  const active = barcodeScanner;
+  barcodeScanner = null;
+  if (active) {
+    try {
+      const status = active.getState ? active.getState() : 0;
+      if (status === 2 || status === 1) await active.stop();
+    } catch (error) {
+      // The scanner may already have stopped after a successful decode.
+    }
+    try { active.clear(); } catch (error) {}
+  }
+  scannerStarting = false;
+}
+
+function scannerMarkup() {
+  return '<div class="scanner-layout">' +
+    '<div class="scanner-frame"><div id="scannerReader" aria-label="Camera barcode scanner"></div></div>' +
+    '<p id="scannerStatus" class="scanner-status" role="status">Allow camera access, then hold the medicine barcode inside the frame.</p>' +
+    '<div class="scanner-manual"><label class="field" for="scannerCodeInput">Or enter / scan barcode manually<input id="scannerCodeInput" autocomplete="off" inputmode="numeric" placeholder="Scan with a USB scanner or type barcode"></label>' +
+    '<button class="button button-primary" type="button" data-action="scanner-search">Find medicine</button></div>' +
+    '<p class="help-text">Works with common EAN / UPC / Code 128 barcodes. A USB barcode scanner can also type into the field above.</p>' +
+    '<div id="scannerResults" class="scanner-results"></div>' +
+    '</div>';
+}
+
+async function openBarcodeScanner() {
+  await stopBarcodeCamera();
+  lastScannedBarcode = "";
+  openModal("Scan medicine barcode", scannerMarkup());
+  const status = $("#scannerStatus");
+  if (!window.isSecureContext && location.hostname !== "localhost") {
+    status.textContent = "Camera scanning requires a secure HTTPS connection. You can still enter or scan the barcode manually.";
+    return;
+  }
+  if (!window.Html5Qrcode) {
+    status.textContent = "The camera scanner library could not load. Use manual entry, or reload the page to try again.";
+    return;
+  }
+  scannerStarting = true;
+  const formats = [
+    Html5QrcodeSupportedFormats.EAN_13,
+    Html5QrcodeSupportedFormats.EAN_8,
+    Html5QrcodeSupportedFormats.UPC_A,
+    Html5QrcodeSupportedFormats.UPC_E,
+    Html5QrcodeSupportedFormats.CODE_128,
+    Html5QrcodeSupportedFormats.CODE_39,
+    Html5QrcodeSupportedFormats.ITF,
+    Html5QrcodeSupportedFormats.QR_CODE,
+    Html5QrcodeSupportedFormats.DATA_MATRIX
+  ].filter((value) => value !== undefined);
+  barcodeScanner = new Html5Qrcode("scannerReader", { formatsToSupport: formats, verbose: false });
+  try {
+    await barcodeScanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 260, height: 150 }, aspectRatio: 1.6 },
+      async (decodedText) => {
+        const code = String(decodedText || "").trim();
+        if (!code || code === lastScannedBarcode || modal.classList.contains("hidden")) return;
+        lastScannedBarcode = code;
+        const input = $("#scannerCodeInput");
+        if (input) input.value = code;
+        const message = $("#scannerStatus");
+        if (message) message.textContent = "Barcode captured: " + code + ". Looking up the inventory…";
+        await stopBarcodeCamera();
+        await searchScannedBarcode(code);
+      },
+      () => {}
+    );
+    scannerStarting = false;
+    const reader = $("#scannerReader");
+    if (reader) reader.classList.add("scanner-active");
+  } catch (error) {
+    scannerStarting = false;
+    const message = $("#scannerStatus");
+    if (message) message.textContent = "Camera could not start. Check browser camera permission, or use manual barcode entry.";
+    await stopBarcodeCamera();
+  }
+}
+
+async function searchScannedBarcode(rawCode) {
+  const code = String(rawCode || "").trim();
+  if (!code) {
+    noticeToast("Scan or enter a barcode first.", "error");
+    return;
+  }
+  lastScannedBarcode = code;
+  const status = $("#scannerStatus");
+  const results = $("#scannerResults");
+  if (status) status.textContent = "Searching inventory for " + code + "…";
+  if (results) results.innerHTML = '<div class="loading-state">Looking up barcode…</div>';
+  try {
+    const response = await api("/api/medicines?q=" + encodeURIComponent(code));
+    const medicines = Array.isArray(response.medicines) ? response.medicines : [];
+    state.medicines = medicines;
+    const exact = medicines.filter((item) => String(item.barcode || "").trim().toLowerCase() === code.toLowerCase());
+    const matches = exact.length ? exact : medicines;
+    if (status) status.textContent = matches.length
+      ? "Found " + matches.length + " matching batch(es) for barcode " + code + "."
+      : "No matching batch was found for barcode " + code + ".";
+    if (results) {
+      results.innerHTML = matches.length
+        ? '<div class="scanner-match-list">' + matches.slice(0, 12).map((item) =>
+            '<article class="scanner-match"><div class="scanner-match-copy"><strong>' + esc(item.name) + '</strong><span>' + esc(item.brand || item.category || "Medicine") + ' · Batch ' + esc(item.batchNumber) + '</span><small>Barcode ' + esc(item.barcode || "not recorded") + ' · ' + number(item.quantity) + ' units · Expires ' + date(item.expiryDate) + '</small></div><div class="scanner-match-actions"><button type="button" class="button button-secondary button-sm" data-action="scanner-edit" data-id="' + esc(item._id) + '">Edit</button><button type="button" class="button button-primary button-sm" data-action="scanner-stock" data-id="' + esc(item._id) + '">Stock</button></div></article>'
+          ).join("") + '</div>'
+        : '<div class="scanner-no-match"><strong>No medicine found</strong><p>Add this barcode to a medicine batch so future scans can find it.</p><button type="button" class="button button-primary" data-action="scanner-add" data-code="' + esc(code) + '">Add medicine with this barcode</button></div>';
+    }
+  } catch (error) {
+    if (status) status.textContent = "The inventory lookup failed. Check your connection and try again.";
+    if (results) results.innerHTML = '<div class="form-error">' + esc(error.message) + '</div>';
+  }
+}
+
+async function openMedicineModal(id, scannedBarcode) {
   const old = id ? state.medicines.find((item) => item._id === id) : null;
   const suppliersResult = await api("/api/suppliers");
   state.suppliers = suppliersResult.suppliers;
   const supplierOptions = [{ value: "", label: "No supplier selected" }].concat(state.suppliers.map((item) => ({ value: item._id, label: item.name })));
-  const item = old || { name: "", brand: "", category: "General", batchNumber: "", barcode: "", manufacturer: "", supplierId: "", purchasePrice: "0", sellingPrice: "0", quantity: "0", reorderLevel: "10", expiryDate: "", storageLocation: "", notes: "" };
+  const item = old || { name: "", brand: "", category: "General", batchNumber: "", barcode: scannedBarcode || "", manufacturer: "", supplierId: "", purchasePrice: "0", sellingPrice: "0", quantity: "0", reorderLevel: "10", expiryDate: "", storageLocation: "", notes: "" };
   const d = item.expiryDate ? String(item.expiryDate).slice(0, 10) : "";
   const form =
     '<form data-kind="medicine" data-id="' + esc(id || "") + '" class="form-stack">' +
@@ -484,6 +603,10 @@ async function handleAction(button) {
   const action = button.dataset.action;
   const id = button.dataset.id;
   if (action === "close-modal") return closeModal();
+  if (action === "scanner-search") return searchScannedBarcode($("#scannerCodeInput")?.value || "");
+  if (action === "scanner-add") { const code = button.dataset.code || lastScannedBarcode; closeModal(); return openMedicineModal(null, code); }
+  if (action === "scanner-edit") { closeModal(); return openMedicineModal(id); }
+  if (action === "scanner-stock") { closeModal(); return openMovementModal(id); }
   if (action === "reload") return loadView(state.view);
   if (action === "edit-medicine") return openMedicineModal(id);
   if (action === "stock-medicine") return openMovementModal(id);
@@ -524,6 +647,7 @@ function safeClickActions(event) {
 }
 $("#authForm").addEventListener("submit", signIn);
 $("#logoutButton").addEventListener("click", signOut);
+$("#scannerButton").addEventListener("click", () => openBarcodeScanner().catch((error) => noticeToast(error.message, "error")));
 $("#primaryAction").addEventListener("click", () => {
   const action = state.view === "users" ? openUserModal() : state.view === "suppliers" ? openSupplierModal() : state.view === "stock" ? openMovementModal() : openMedicineModal();
   Promise.resolve(action).catch((error) => noticeToast(error.message, "error"));
