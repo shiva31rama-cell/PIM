@@ -89,8 +89,11 @@ function showShell() {
   $("#userName").textContent = state.user.name;
   $("#userEmail").textContent = state.user.email;
   $("#userAvatar").textContent = initials(state.user.name);
+  const isAdmin = state.user.role === "admin";
   const usersNav = $("#usersNavItem");
-  if (usersNav) usersNav.classList.toggle("hidden", state.user.role !== "admin");
+  if (usersNav) usersNav.classList.toggle("hidden", !isAdmin);
+  const adminButton = $("#adminButton");
+  if (adminButton) adminButton.classList.toggle("hidden", !isAdmin);
   $("#todayDate").textContent = new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
 }
 async function start() {
@@ -645,6 +648,10 @@ function safeClickActions(event) {
   if (nav && !nav.classList.contains("nav-item")) loadView(nav.dataset.view).catch((error) => noticeToast(error.message, "error"));
 }
 $("#authForm").addEventListener("submit", signIn);
+$("#adminButton").addEventListener("click", () => {
+  if (state.user?.role !== "admin") return;
+  loadView("users").catch((error) => noticeToast(error.message, "error"));
+});
 $("#logoutButton").addEventListener("click", signOut);
 $("#scannerButton").addEventListener("click", () => openBarcodeScanner().catch((error) => noticeToast(error.message, "error")));
 $("#primaryAction").addEventListener("click", () => {
